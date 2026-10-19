@@ -156,8 +156,3 @@ class Bot:
 
         me.set_priority(1 + below(100))
 
-
-# helper function to deal with bitmaps (pathfinding, etc.)
-# pathfinding.py?
-# code to translate behvaiour to specific characters:
-# aka: higher-level behaviours for all characters and lower-level functions to call for specific behaviours for specific characters
