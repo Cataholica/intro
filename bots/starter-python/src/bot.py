@@ -1,5 +1,7 @@
 """Champion decisions. main.py dispatches here after the draft."""
 import struct
+from typing import List, Optional, Sequence, Tuple
+
 from randomness import below
 
 import cambc
@@ -8,17 +10,17 @@ from cambc import game_map
 Team, Item = cambc.Team, cambc.ItemType
 
 
-def distance(a, b):
+def distance(a: cambc.Vec2, b: cambc.Vec2) -> int:
     return a.chebyshev_distance(b)
 
 
-def tiles_around(position, radius):
+def tiles_around(position: cambc.Vec2, radius: int) -> cambc.Bitboard:
     tiles = cambc.Bitboard()
     tiles.draw_chebyshev(position, radius)
     return tiles
 
 
-def blocked_tiles():
+def blocked_tiles() -> cambc.Bitboard:
     # Combine terrain and visible occupants using native bitboard operations.
     blocked = (game_map.walls() | game_map.holes() | game_map.altars()
                | game_map.spawn_region(Team.ENEMY) | cambc.vision.champion_tiles()
@@ -27,7 +29,7 @@ def blocked_tiles():
     return blocked
 
 
-def move_towards_closest(goals):
+def move_towards_closest(goals: cambc.Bitboard) -> bool:
     me = cambc.me()
     origin = me.position()
     if not me.can_move() or goals.is_set(origin):
@@ -51,7 +53,7 @@ def move_towards_closest(goals):
     return step != origin and me.move_absolute(step)
 
 
-def attack_first_in_range(targets):
+def attack_first_in_range(targets: Sequence[cambc.Unit]) -> bool:
     # Compute the attack mask once, rather than once per visible target.
     me = cambc.me()
     if not targets or not me.can_attack():
@@ -64,7 +66,7 @@ def attack_first_in_range(targets):
     return False
 
 
-def farm_camps(bot):
+def farm_camps(bot: "Bot") -> None:
     # Attack a camp already in range, otherwise move toward the nearest camp tiles.
     if attack_first_in_range(cambc.vision.camps()):
         return
@@ -90,21 +92,24 @@ def farm_camps(bot):
 
 
 class Bot:
-    def __init__(self):
+    def __init__(self) -> None:
         # Per-champion state survives between turns. Pick one stat and keep buying it.
-        self.chosen_stat = None
-        self.camp_layout = None
+        self.chosen_stat: Optional[int] = None
+        self.camp_layout: Optional[
+            Tuple[cambc.Bitboard, List[Tuple[game_map.CampGroup, cambc.Bitboard]]]
+        ] = None
 
-    def buy_items(self):
+    def buy_items(self) -> None:
         # Spend only on power shards of the randomly chosen stat.
         me = cambc.me()
+        assert self.chosen_stat is not None
         item = (Item.POWER_SHARD_OF_STRENGTH, Item.POWER_SHARD_OF_FOCUS,
                 Item.POWER_SHARD_OF_HEALTH)[self.chosen_stat]
         count = me.gold_count() // item.cost()
         if count and me.can_buy(item, count):
             me.buy(item, count)
 
-    def play_turn(self):
+    def play_turn(self) -> None:
         # Initialise this champion's build and read the draft message once.
         if self.chosen_stat is None:
             self.chosen_stat = below(3)
@@ -155,4 +160,3 @@ class Bot:
         farm_camps(self)
 
         me.set_priority(1 + below(100))
-

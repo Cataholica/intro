@@ -1,10 +1,12 @@
+from typing import Optional
+
 import cambc
 from cambc import game_map
 
-_state = None
+_state: Optional[int] = None
 
 
-def below(limit):
+def below(limit: int) -> int:
     # WASI randomness is always zero in matches, so seed from our spawn and this champion's start.
     global _state
     if _state is None:

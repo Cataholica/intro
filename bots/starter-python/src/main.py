@@ -1,10 +1,12 @@
 """Dispatch draft and gameplay; a failed turn is logged and still yields."""
+from typing import NoReturn
+
 import cambc
 import draft
 from bot import Bot
 
 
-def main():
+def main() -> NoReturn:
     bot = Bot()
     while True:
         try:
