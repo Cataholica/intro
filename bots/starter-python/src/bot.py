@@ -24,7 +24,8 @@ class Bot:
         self.shards_bought = 0
 
     def reach(self):
-        return BASE_REACH + REACH_PER_TRIP * self.trips + REACH_PER_SHARD * self.shards_bought
+        return BASE_REACH + REACH_PER_TRIP * self.trips + REACH_PER_SHARD * self.shards_bought + (cambc.round_number()/10)
+        # temporary hack to make sure bots don't just wait around spawn on very lopsided maps like rushbait
 
     def may_invade(self):
         threshold = max(INVADE_MIN_IDLE, INVADE_IDLE_TURNS - 2 * self.shards_bought)
