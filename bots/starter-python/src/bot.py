@@ -127,6 +127,8 @@ class Bot:
         # Initialise this champion's build and read the draft message once.
         if self.chosen_stat is None:
             self.chosen_stat = below(3)
+            self.home = game_map.spawn_region(Team.ALLY).positions()[0]
+            self.enemy_home = game_map.spawn_region(Team.ENEMY).positions()[0]
             print("draft:", bytes(cambc.DraftMemoryBuffer())[:11].decode())
 
         # Read before writing: little-endian u32 at shared-memory byte offset zero.
@@ -146,6 +148,7 @@ class Bot:
         # Shop before leaving spawn.
         at_spawn = game_map.spawn_region(Team.ALLY).is_set(me.position())
         if at_spawn:
+            self.trip_start = cambc.round_number()
             self.buy_items()
 
         # Recall immediately when badly hurt away from spawn.
@@ -153,8 +156,19 @@ class Bot:
             me.recall()
             return
 
+### Alternative recall strat
+# Timed recall: hard floor early in a trip, softer inside the respawn window.
+#        if not at_spawn:
+#            trip_turns = cambc.round_number() - self.trip_start
+#            if me.health() < me.max_health() * recall_threshold(trip_turns):
+#            self.trips += 1
+#            self.idle_turns = 0
+#            me.recall()
+#                return
+###
+        
         # Attack the first enemy champion already in range.
-        if attack_first_in_range(cambc.vision.champions(Team.ENEMY)):
+        if attack_first_in_range(weakest_first(cambc.vision.champions(Team.ENEMY))):
             return
 
         # Bank any carried gems before farming.
