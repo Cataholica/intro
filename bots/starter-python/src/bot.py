@@ -100,8 +100,8 @@ class Bot:
                     me.submit_gems(altar)
                     return
                 goals |= tiles_around(altar, cambc.constants.SUBMIT_GEMS_RANGE)
-            move_towards_closest(goals)
-            return
+            if move_towards_closest(goals):
+                return
 
         farm_camps(self)
 
