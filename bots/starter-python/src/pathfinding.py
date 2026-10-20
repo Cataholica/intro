@@ -13,6 +13,7 @@ SIEGE_RADIUS = 7            # where to loiter if no enemy camps are left to take
 # Basically improvements to the camp farming function in bot.py, might merge the code into bot.py in the future
 # After all, some functions depend on ones defined in bot.py
 # We'll see how this works, too tired to check the code rn
+# The code might be better improved with deeper knowledge of the API, but this will do for now.
 def weakest_first(targets):
     # Finishing low-health targets first shortens fights and takes less damage.
     visible = [t for t in targets if t.is_visible()]
