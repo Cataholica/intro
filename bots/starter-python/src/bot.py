@@ -98,6 +98,19 @@ class Bot:
         self.camp_layout: Optional[
             Tuple[cambc.Bitboard, List[Tuple[game_map.CampGroup, cambc.Bitboard]]]
         ] = None
+        self.home = None
+        self.enemy_home = None
+        self.trip_start = 0
+        self.trips = 0
+        self.idle_turns = 0
+        self.shards_bought = 0
+
+    def reach(self):
+        return BASE_REACH + REACH_PER_TRIP * self.trips + REACH_PER_SHARD * self.shards_bought
+
+    def may_invade(self):
+        threshold = max(INVADE_MIN_IDLE, INVADE_IDLE_TURNS - 2 * self.shards_bought)
+        return self.idle_turns >= threshold
 
     def buy_items(self) -> None:
         # Spend only on power shards of the randomly chosen stat.
@@ -108,6 +121,7 @@ class Bot:
         count = me.gold_count() // item.cost()
         if count and me.can_buy(item, count):
             me.buy(item, count)
+            self.shards_bought += count
 
     def play_turn(self) -> None:
         # Initialise this champion's build and read the draft message once.
