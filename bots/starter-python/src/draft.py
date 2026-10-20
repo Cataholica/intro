@@ -3,7 +3,8 @@ from randomness import below
 
 
 def play() -> None:
-    # Choose randomly from the champions our team has not picked.
+    # We will eventually work towards a draft system that essentially emphasises the S-tire units first
+    # then work down the tierlist once all the high-tier champions are chosen
     chosen = cambc.draft.current_draft(cambc.Team.ALLY)
     available = [
         pick for pick in (
