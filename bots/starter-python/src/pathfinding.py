@@ -61,37 +61,8 @@ def camp_goals(bot, reach, enemy_side, respawning):
         if is_respawning == respawning:
             goals |= tiles
     return goals
- 
- 
-def farm_camps(bot):
-    # Attack a camp already in range, otherwise move toward the next ring of camps.
-    if attack_first_in_range(weakest_first(cambc.vision.camps())):
-        return
- 
-    if bot.camp_layout is None:
-        build_layout(bot)
-    reach = bot.reach()
- 
-    # 1. Farm: nearest live or unseen camps inside the current reach.
-    goals = camp_goals(bot, reach, enemy_side=False, respawning=False)
-    if not goals.is_empty():
-        bot.idle_turns = max(0, bot.idle_turns - 1)
-    else:
-        # 2. Idle: everything nearby is cleared.
-        bot.idle_turns += 1
-        if bot.may_invade():
-            goals = camp_goals(bot, reach, enemy_side=True, respawning=False)
-            if goals.is_empty():
-                goals = tiles_around(bot.enemy_home, SIEGE_RADIUS)
-        else:
-            # Pre-position on camps we can see respawning so we strike on spawn.
-            goals = camp_goals(bot, reach, enemy_side=False, respawning=True)
- 
-    # Fresh vision after movement may reveal a camp already in range.
-    if move_towards_closest(goals):
-        attack_first_in_range(weakest_first(cambc.vision.camps()))
- 
- 
+
+
 def recall_threshold(trip_turns):
     # Early in a trip, push until nearly dead. Once the respawn window is close,
     # recall at moderate damage so shopping and the walk back line up with respawns.
