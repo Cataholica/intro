@@ -1,4 +1,3 @@
-"""Champion decisions. main.py dispatches here after the draft."""
 import struct
 from typing import List, Optional, Sequence, Tuple
 
