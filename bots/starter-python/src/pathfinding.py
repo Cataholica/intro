@@ -15,6 +15,17 @@ SIEGE_RADIUS = 7            # where to loiter if no enemy camps are left to take
 # We'll see how this works, too tired to check the code rn
 # The code might be better improved with deeper knowledge of the API, but this will do for now.
 
+from pathfinding import ROLE_RULES, identify, claim_role
+from bot import bot
+
+DASH_REACH_BONUS = 5
+SUSTAIN_DISCOUNT = 0.10  # sustain champions recall this much lower
+SHARD_ITEMS = {
+    "strength": Item.POWER_SHARD_OF_STRENGTH,
+    "focus": Item.POWER_SHARD_OF_FOCUS,
+    "health": Item.POWER_SHARD_OF_HEALTH,
+}
+
 def distance(a: cambc.Vec2, b: cambc.Vec2) -> int:
     return a.chebyshev_distance(b)
 
@@ -38,6 +49,11 @@ def weakest_first(targets):
     visible = [t for t in targets if t.is_visible()]
     return sorted(visible, key=lambda t: t.health())
 
+def note_camp_kinds(bot):
+    # Groups don't report their kind unseen, so remember where gem clusters spawn.
+    for camp in cambc.vision.camps():
+        if camp.is_visible() and camp.is_gem_cluster():
+            bot.gem_tiles.set(camp.spawn_position(), True)
 
 def move_towards_closest(goals: cambc.Bitboard) -> bool:
     me = cambc.me()
@@ -75,7 +91,7 @@ def attack_first_in_range(targets: Sequence[cambc.Unit]) -> bool:
             return True
     return False
 
-
+"""
 def farm_camps(bot: "Bot") -> None:
     # Attack a camp already in range, otherwise move toward the nearest camp tiles.
     if attack_first_in_range(weakest_first(cambc.vision.camps())):
@@ -99,7 +115,40 @@ def farm_camps(bot: "Bot") -> None:
     # Fresh vision after movement may reveal a camp already in range.
     if move_towards_closest(goals):
         attack_first_in_range(weakest_first(cambc.vision.camps()))
- 
+ """
+# New code?
+def farm_camps(bot):
+    note_camp_kinds(bot)
+    if attack_first_in_range(weakest_first(cambc.vision.camps())):
+        return
+
+    if bot.camp_layout is None:
+        build_layout(bot)
+    reach = bot.reach()
+    inf = float("inf")
+
+    # 1. Gold phase: nearest farmable camps, crystals excluded; widen before idling.
+    goals = camp_goals(bot, reach, False, False, skip=bot.gem_tiles)
+    if goals.is_empty():
+        goals = camp_goals(bot, inf, False, False, skip=bot.gem_tiles)
+    if not goals.is_empty():
+        bot.idle_turns = max(0, bot.idle_turns - 1)
+    else:
+        bot.idle_turns += 1
+        if bot.may_invade():
+            # 2. Crystal and invasion phase: crystals, then enemy camps, then the enemy spawn.
+            goals = camp_goals(bot, inf, False, False, only=bot.gem_tiles)
+            if goals.is_empty():
+                goals = camp_goals(bot, inf, True, False, only=bot.gem_tiles)
+            if goals.is_empty():
+                goals = camp_goals(bot, inf, True, False)
+            if goals.is_empty():
+                goals = tiles_around(bot.enemy_home, SIEGE_RADIUS)
+        else:
+            # Pre-position on camps we can see respawning.
+            goals = camp_goals(bot, reach, False, True)
+    if move_towards_closest(goals):
+        attack_first_in_range(weakest_first(cambc.vision.camps()))
  
 def build_layout(bot):
     # Spawn locations never change, so compute this once per champion.
@@ -113,7 +162,7 @@ def build_layout(bot):
         groups.append((group, tiles, distance(bot.home, anchor), distance(bot.enemy_home, anchor)))
     bot.camp_layout = groups
  
- 
+"""
 def camp_goals(bot, reach, enemy_side, respawning):
     # Union of spawn tiles for camp groups matching the filters.
     # Unseen groups count as "not respawning", so they stay as exploration goals.
@@ -130,11 +179,41 @@ def camp_goals(bot, reach, enemy_side, respawning):
         if is_respawning == respawning:
             goals |= tiles
     return goals
-
-
-def recall_threshold(trip_turns):
+"""
+def camp_goals(bot, reach, enemy_side, respawning, only=None, skip=None):
+    # Union of spawn tiles for camp groups matching the filters.
+    # only/skip optionally restrict to or exclude a set of tiles (e.g. gem clusters).
+    visible = cambc.vision.visible_tiles()
+    occupied = cambc.vision.camp_tiles()
+    goals = cambc.Bitboard()
+    for group, tiles, d_home, d_enemy in bot.camp_layout:
+        if (d_enemy < d_home) != enemy_side:
+            continue
+        if not enemy_side and d_home > reach:
+            continue
+        t = tiles
+        if only is not None:
+            t = t & only
+        if skip is not None:
+            t = t & ~skip
+        if t.is_empty():
+            continue
+        is_respawning = (not (tiles & visible).is_empty()
+                         and isinstance(group.state(), game_map.CampGroupRespawning))
+        if is_respawning == respawning:
+            if respawning:
+                goals |= t
+            else:
+                # Skip visible spawn tiles with no camp on them; they're already dead.
+                goals |= (t & ~visible) | (t & occupied)
+    return goals
+    
+def recall_threshold(bot, trip_turns):
     # Early in a trip, push until nearly dead. Once the respawn window is close,
     # recall at moderate damage so shopping and the walk back line up with respawns.
-    if trip_turns < RESPAWN_MIN - RECALL_LEAD:
-        return HARD_RECALL_HEALTH
-    return TIMED_RECALL_HEALTH
+    rules = bot.rules
+    early = trip_turns < RESPAWN_MIN - RECALL_LEAD
+    base = rules.hard_recall if early else rules.timed_recall
+    if bot.profile.sustain:
+        base -= SUSTAIN_DISCOUNT
+    return max(0.05, base)
