@@ -15,7 +15,7 @@ SIEGE_RADIUS = 7            # where to loiter if no enemy camps are left to take
 # We'll see how this works, too tired to check the code rn
 # The code might be better improved with deeper knowledge of the API, but this will do for now.
 
-from pathfinding import ROLE_RULES, identify, claim_role
+from Champion_strats import ROLE_RULES, identify, claim_role
 from bot import bot
 
 DASH_REACH_BONUS = 5
