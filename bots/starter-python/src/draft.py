@@ -6,6 +6,7 @@ CD = cambc.ChampionDraft
 # Highest priority first. Champions in the same tier are equally preferred,
 # and one is chosen at random when several are still available.
 PRIORITY_TIERS = [
+    [CD.HEART_OF_RUIN]
     [CD.CASSI_AND_ISSAC],
     [CD.VARG],
     [CD.REN],
