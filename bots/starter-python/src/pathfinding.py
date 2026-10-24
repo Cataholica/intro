@@ -16,6 +16,7 @@ SIEGE_RADIUS = 7            # where to loiter if no enemy camps are left to take
 # The code might be better improved with deeper knowledge of the API, but this will do for now.
 
 from Champion_strats import ROLE_RULES, identify, claim_role
+import teamplay as tp
 from bot import bot
 
 DASH_REACH_BONUS = 5
@@ -117,49 +118,106 @@ def farm_camps(bot: "Bot") -> None:
         attack_first_in_range(weakest_first(cambc.vision.camps()))
  """
 # New code?
-def farm_camps(bot):
-    note_camp_kinds(bot)
-    if attack_first_in_range(weakest_first(cambc.vision.camps())):
-        return
-
-    if bot.camp_layout is None:
-        build_layout(bot)
+def select_goals(bot):
+    # Which camp groups are worth fighting now: gold first, then crystals and invasion.
     reach = bot.reach()
     inf = float("inf")
-
-    # 1. Gold phase: nearest farmable camps, crystals excluded; widen before idling.
-    goals = camp_goals(bot, reach, False, False, skip=bot.gem_tiles)
-    if goals.is_empty():
-        goals = camp_goals(bot, inf, False, False, skip=bot.gem_tiles)
-    if not goals.is_empty():
+    goals, ids = camp_goals(bot, reach, False, False, skip=bot.gem_tiles)
+    if not ids:
+        goals, ids = camp_goals(bot, inf, False, False, skip=bot.gem_tiles)
+    if ids:
         bot.idle_turns = max(0, bot.idle_turns - 1)
+        return goals, ids
+
+    bot.idle_turns += 1
+    if bot.may_invade():
+        for enemy_side, only in ((False, bot.gem_tiles), (True, bot.gem_tiles), (True, None)):
+            goals, ids = camp_goals(bot, inf, enemy_side, False, only=only)
+            if ids:
+                return goals, ids
+        return tiles_around(bot.enemy_home, SIEGE_RADIUS), []
+    # Pre-position on camps we can see respawning.
+    return camp_goals(bot, reach, False, True)[0], []
+
+
+def attack_ready_camps(bot):
+    # Only attack camps whose party is ready, or that are nearly dead.
+    me = cambc.me()
+    ready = []
+    for camp in weakest_first(cambc.vision.camps()):
+        idx = tp.group_of(bot, camp)
+        if idx is None:
+            continue
+        anchor, size = bot.group_meta[idx]
+        need = bot.engaged_need if bot.engaged == idx else tp.need_for(size, 0)
+        finishing = camp.health() < camp.max_health() * tp.FINISH_HEALTH
+        if finishing or tp.party_near(me, anchor, tp.JOIN_RADIUS) >= need:
+            ready.append(camp)
+    return attack_first_in_range(ready)
+
+
+def farm_camps(bot):
+    note_camp_kinds(bot)
+    if bot.camp_layout is None:
+        build_layout(bot)
+    if attack_ready_camps(bot):
+        return
+
+    goals, ids = select_goals(bot)
+    if ids:
+        goals = tp.coordinate(bot, ids)
     else:
-        bot.idle_turns += 1
-        if bot.may_invade():
-            # 2. Crystal and invasion phase: crystals, then enemy camps, then the enemy spawn.
-            goals = camp_goals(bot, inf, False, False, only=bot.gem_tiles)
-            if goals.is_empty():
-                goals = camp_goals(bot, inf, True, False, only=bot.gem_tiles)
-            if goals.is_empty():
-                goals = camp_goals(bot, inf, True, False)
-            if goals.is_empty():
-                goals = tiles_around(bot.enemy_home, SIEGE_RADIUS)
-        else:
-            # Pre-position on camps we can see respawning.
-            goals = camp_goals(bot, reach, False, True)
+        tp.clear_target(bot)
+
+    # Fresh vision after movement may reveal a camp already in range.
     if move_towards_closest(goals):
-        attack_first_in_range(weakest_first(cambc.vision.camps()))
+        attack_ready_camps(bot)
+
+
+def regroup_goals(me):
+    # Run toward allies if any are visible, otherwise back to spawn.
+    goals = cambc.Bitboard()
+    for ally in cambc.vision.champions(Team.ALLY):
+        if ally.position() != me.position():
+            goals |= tiles_around(ally.position(), 2)
+    if goals.is_empty():
+        goals = game_map.spawn_region(Team.ALLY).copy()
+    return goals
+
+
+def handle_enemies(bot):
+    # Fight enemy champions only as a group; otherwise regroup instead of trading 1v1.
+    me = cambc.me()
+    pos = me.position()
+    near = [e for e in weakest_first(cambc.vision.champions(Team.ENEMY))
+            if distance(pos, e.position()) <= tp.THREAT_RADIUS]
+    if not near:
+        return False
+    allies = 1 + sum(1 for a in cambc.vision.champions(Team.ALLY)
+                     if a.position() != pos
+                     and distance(pos, a.position()) <= tp.THREAT_RADIUS
+                     and a.health() > a.max_health() * tp.MIN_ALLY_HEALTH)
+    if allies >= 2 and allies >= len(near):
+        return attack_first_in_range(near)
+    weak = [e for e in near if e.health() < e.max_health() * tp.FINISH_HEALTH]
+    if weak and attack_first_in_range(weak):
+        return True
+    if me.can_move() and move_towards_closest(regroup_goals(me)):
+        return True
+    return attack_first_in_range(near)  # cornered: hit back
  
 def build_layout(bot):
     # Spawn locations never change, so compute this once per champion.
     # Each entry: (group, spawn tiles, distance to our home, distance to enemy home).
     groups = []
+    bot.group_meta = []
     for group in game_map.camp_groups():
         tiles = group.spawn_tiles()
         if tiles.is_empty():
             continue
         anchor = tiles.positions()[0]
         groups.append((group, tiles, distance(bot.home, anchor), distance(bot.enemy_home, anchor)))
+        bot.group_meta.append((anchor, tiles.count()))
     bot.camp_layout = groups
  
 """
@@ -181,12 +239,11 @@ def camp_goals(bot, reach, enemy_side, respawning):
     return goals
 """
 def camp_goals(bot, reach, enemy_side, respawning, only=None, skip=None):
-    # Union of spawn tiles for camp groups matching the filters.
-    # only/skip optionally restrict to or exclude a set of tiles (e.g. gem clusters).
     visible = cambc.vision.visible_tiles()
     occupied = cambc.vision.camp_tiles()
     goals = cambc.Bitboard()
-    for group, tiles, d_home, d_enemy in bot.camp_layout:
+    ids = []
+    for i, (group, tiles, d_home, d_enemy) in enumerate(bot.camp_layout):
         if (d_enemy < d_home) != enemy_side:
             continue
         if not enemy_side and d_home > reach:
@@ -200,13 +257,17 @@ def camp_goals(bot, reach, enemy_side, respawning, only=None, skip=None):
             continue
         is_respawning = (not (tiles & visible).is_empty()
                          and isinstance(group.state(), game_map.CampGroupRespawning))
-        if is_respawning == respawning:
-            if respawning:
-                goals |= t
-            else:
-                # Skip visible spawn tiles with no camp on them; they're already dead.
-                goals |= (t & ~visible) | (t & occupied)
-    return goals
+        if is_respawning != respawning:
+            continue
+        if respawning:
+            goals |= t
+        else:
+            # Skip visible spawn tiles with no camp on them; they're already dead.
+            part = (t & ~visible) | (t & occupied)
+            if not part.is_empty():
+                goals |= part
+                ids.append(i)
+    return goals, ids
     
 def recall_threshold(bot, trip_turns):
     # Early in a trip, push until nearly dead. Once the respawn window is close,
