@@ -6,6 +6,7 @@ from Champion_strats import ROLE_RULES, identify, claim_role
 
 import cambc
 from cambc import game_map
+import teamplay as tp
 
 Team, Item = cambc.Team, cambc.ItemType
 
@@ -20,6 +21,13 @@ class Bot:
         self.camp_layout: Optional[
             Tuple[cambc.Bitboard, List[Tuple[game_map.CampGroup, cambc.Bitboard]]]
         ] = None
+        self.group_meta = []
+        self.slot = 0
+        self.target = None
+        self.engaged = None
+        self.engaged_need = 0
+        self.wait_turns = 0
+        self.banned = {}
         self.home = None
         self.enemy_home = None
         self.trip_start = 0
@@ -69,6 +77,7 @@ class Bot:
             self.profile = identify(cambc.DraftMemoryBuffer())
             self.role = claim_role(self.profile)
             self.rules = ROLE_RULES[self.role]
+            self.slot = tp.claim_slot()
             self.home = game_map.spawn_region(Team.ALLY).positions()[0]
             self.enemy_home = game_map.spawn_region(Team.ENEMY).positions()[0]
             print("champion:", self.profile.name, "role:", self.role)
@@ -95,22 +104,17 @@ class Bot:
 
         # Recall immediately when badly hurt away from spawn.
         if not at_spawn and me.health() < me.max_health() * 0.35:
-            me.recall()
-            return
-"""
-Alternative recall strat
-Timed recall: hard floor early in a trip, softer inside the respawn window.
-        if not at_spawn:
             trip_turns = cambc.round_number() - self.trip_start
             if me.health() < me.max_health() * recall_threshold(trip_turns):
             self.trips += 1
             self.idle_turns = 0
+            tp.clear_target(self)
             me.recall()
-                return
-"""
+            return
+
         
         # Attack the first enemy champion already in range.
-        if attack_first_in_range(weakest_first(cambc.vision.champions(Team.ENEMY))):
+        if handle_enemies(self):
             return
 
         # Bank any carried gems before farming.
