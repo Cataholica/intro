@@ -28,6 +28,7 @@ NAMES = {
     CD.REN: b"REN",
     CD.VARG: b"VARG",
     CD.TAVI: b"TAVI",
+    CD.HEART_OF_RUIN: b"HOR"
 }
 
 def play() -> None:
